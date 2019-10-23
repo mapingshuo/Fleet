@@ -114,8 +114,6 @@ class FleetDistRunnerBase(object):
             # Step2: Init distribute training role
             self.role = role_maker.PaddleCloudRoleMaker()
             fleet.init(self.role)
-            params.is_first_trainer = self.role.is_first_worker()
-            params.current_id = self.role.worker_index()
 
             # Step3: decide distribute training strategy between PSERVER & TRAINER
             self.strategy = DistributeTranspilerConfig()
@@ -205,15 +203,15 @@ class FleetDistRunnerBase(object):
             speed = float(all_examples) / float(end_time - start_time)
             logger.info("epoch: %d finished, speed: %f" % (epoch, speed))
 
-            if params.is_first_trainer and params.test:
+            if self.role.is_first_worker() and params.test:
                 model_path = str(params.model_path) + '/trainer_' + \
-                    str(params.current_id) + '_epoch_' + str(epoch)
+                    str(self.role.worker_index()) + '_epoch_' + str(epoch)
                 fleet.save_persistables(executor=exe, dirname=model_path)
 
-        if params.is_first_trainer:
+        if self.role.is_first_worker():
             train_method = '_dataset_train'
             log_path = str(params.log_path + '/' +
-                           str(params.current_id) + train_method + '.log')
+                           str(self.role.worker_index()) + train_method + '.log')
             model_path = str(params.model_path + '/final' + train_method)
             fleet.save_persistables(executor=exe, dirname=model_path)
 

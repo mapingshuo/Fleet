@@ -71,12 +71,7 @@ def params_args(args=None):
                         help='support model save and upload')
 
     # parameters of distribute training
-<<<<<<< HEAD
     params.add_argument("--is_sparse", type=bool, default=True)
-=======
-    params.add_argument("--is_sparse",type=bool,default=True)
->>>>>>> 37fd1cd8b66572448706642c2f42ccb062b0ab8a
-    params.add_argument("--is_first_trainer", type=bool, default=False)
     params.add_argument("--cpu_num", type=int, default=2)
 
     params = params.parse_args()

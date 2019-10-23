@@ -1,4 +1,4 @@
-# ResNet50 and VGG16 on ImageNet with Fleet APIs
+# ResNet50 on ImageNet with Collective Operators
 ## How to change different model
 you can change Resnet50 or VGG16 model easily by editing scripts/train_gpu.sh:
 ```
@@ -7,8 +7,7 @@ MODEL=ResNet50
 ```
 
 ## How to run
-
-### with single gpu multiple cards
 ```
 sh run.sh
 ```
+

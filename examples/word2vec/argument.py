@@ -24,7 +24,7 @@ def params_args(args=None):
     :return: dictionary of parameters
     """
     # parameters of model and files
-    params = argparse.ArgumentParser(description='Run distribute model CE test.')
+    params = argparse.ArgumentParser(description='Run word2vec.')
     params.add_argument("--name", type=str, default="word2vec",
                         help="The name of current model")
     params.add_argument("--train_files_path", type=str, default="train_data",
@@ -34,7 +34,8 @@ def params_args(args=None):
     params.add_argument("--log_path", type=str, default="result")
     params.add_argument("--model_path", type=str, default="model")
     params.add_argument("--dict_path", type=str, default="./test_build_dict")
-    params.add_argument("--infer_dict_path", type=str, default="./test_build_dict_word_to_id_")
+    params.add_argument("--infer_dict_path", type=str,
+                        default="./test_build_dict_word_to_id_")
 
     # parameters of training
     params.add_argument("-l", "--learning_rate", type=float, default=1,
@@ -49,46 +50,27 @@ def params_args(args=None):
     params.add_argument("--decay_rate", type=float, default=0.999,
                         help='Rate of decaying the learning rate.')
 
-
     # customized parameters
     params.add_argument('--embedding_size', type=int, default=64,
                         help="The size for embedding layer")
     params.add_argument('--dict_size', type=int, default=63642)
     params.add_argument('--neg_num', type=int, default=5)
     params.add_argument('--nce_num', type=int, default=5)
-    params.add_argument('--vocab_size', type=int,default=63642)
-    params.add_argument('--start_index',type=int,default=0)
-    params.add_argument('--last_index',type=int,default=10)
-    params.add_argument('--infer_batch_size',type=int,default=20000)
-    params.add_argument('--start_batch',type=int,default=1)
-    params.add_argument('--end_batch',type=int,default=13)
+    params.add_argument('--vocab_size', type=int, default=63642)
+    params.add_argument('--start_index', type=int, default=0)
+    params.add_argument('--last_index', type=int, default=10)
+    params.add_argument('--infer_batch_size', type=int, default=20000)
+    params.add_argument('--start_batch', type=int, default=1)
+    params.add_argument('--end_batch', type=int, default=13)
 
     # parameters of train method
-    params.add_argument("--is_pyreader_train", type=bool, default=False)
-    params.add_argument("--is_dataset_train", type=bool, default=False)
     params.add_argument('--is_local', type=int, default=1,
                         help='Local train or distributed train (default: 1)')
     params.add_argument('--test', type=bool, default=False,
                         help='support model save and upload')
 
-
     # parameters of distribute training
-    params.add_argument('--is_local_cluster', type=bool, default=False)
-    params.add_argument("--is_sparse", type=bool, default=False)
-    params.add_argument('-r', "--role", type=str, required=False, choices=['TRAINER', 'PSERVER'])
-    params.add_argument("--endpoints", type=str, default="",
-                        help='The pserver endpoints, like: 127.0.0.1:6000,127.0.0.1:6001')
-    params.add_argument('--current_endpoint', type=str, default='',
-                        help='The path for model to store (default: 127.0.0.1:6000)')
-    params.add_argument('-i', "--current_id", type=int, default=0,
-                        help="Specifies the number of the current role")
-    params.add_argument("--trainers", type=int, default=1,
-                        help="Specify the number of nodes participating in the training")
     params.add_argument("--is_first_trainer", type=bool, default=False)
-    params.add_argument("--pserver_ip", type=str, default="127.0.0.1")
-    params.add_argument("--pserver_endpoints", type=list, default=[])
-    params.add_argument("--pserver_ports", type=str, default="36001")
-    params.add_argument("--sync_mode", type=str, required=False,choices=['sync','half_async','async'])
     params.add_argument("--cpu_num", type=int, default=2)
 
     params = params.parse_args()

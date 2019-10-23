@@ -37,12 +37,15 @@ export PADDLE_PSERVER_PORT_ARRAY=(36011 36012)
 export PADDLE_PSERVER_NUMS=2
 export PADDLE_TRAINERS=2
 
-train_method=$1
-sync_mode=$2
-role=$3
+training_method=$1
+role=$2
 
+if [[ ${training_method} = "local"]]
+then
+    python -u model.py --training_method=${training_method} &> ./log/local_training.log &
+fi
 
-if [[ ${role} = "ps" ]]
+if [[ ${role} = "ps" -a ! ${training_method}="local"]]
 then
     export TRAINING_ROLE=PSERVER
     export GLOG_v=0
@@ -52,12 +55,12 @@ then
     do
         cur_port=${PADDLE_PSERVER_PORT_ARRAY[$i]}
         echo "PADDLE WILL START PSERVER "$cur_port
-	PADDLE_TRAINER_ID=$i
-	python -u model.py --is_${train_method}_train=True --is_local_cluster=True --sync_mode=${sync_mode} &> ./log/pserver.$i.log &
+	      PADDLE_TRAINER_ID=$i
+	      python -u model.py --is_${train_method}_train=True --is_local_cluster=True --sync_mode=${sync_mode} &> ./log/pserver.$i.log &
     done
 fi
 
-if [[ ${role} = "tr" ]]
+if [[ ${role} = "tr" -a ${training_method}="local"]]
 then
     export TRAINING_ROLE=TRAINER
     export GLOG_v=0
@@ -67,6 +70,6 @@ then
     do
         echo "PADDLE WILL START Trainer "$i
         PADDLE_TRAINER_ID=$i
-	python -u model.py --is_${train_method}_train=True --is_local_cluster=True --sync_mode=${sync_mode} &> ./log/trainer.$i.log &
+	      python -u model.py --is_${train_method}_train=True --is_local_cluster=True --sync_mode=${sync_mode} &> ./log/trainer.$i.log &
     done
 fi

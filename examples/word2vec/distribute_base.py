@@ -103,13 +103,17 @@ class FleetDistRunnerBase(object):
         Args:
             :params params: the hyper parameters of network
         """
-        if params.is_local:
+        if params.training_method == "local":
             logger.info("local train start")
             self.run_local(params)
         else:
             logger.info("distributed train start")
             # Step1: get the environment variable
             params.cpu_num = os.getenv("CPU_NUM")
+
+            # Step3: Configure communication IP and ports
+            self.role = role_maker.PaddleCloudRoleMaker()
+            fleet.init(self.role)
 
             # Step2: decide communication mode between PSERVER & TRAINER
             self.strategy = DistributeTranspilerConfig()
@@ -131,10 +135,6 @@ class FleetDistRunnerBase(object):
             self.optimizer = fleet.distributed_optimizer(
                 self.optimizer, self.strategy)
             self.optimizer.minimize(self.loss)
-
-            # Step3: Configure communication IP and ports
-            self.role = role_maker.PaddleCloudRoleMaker()
-            fleet.init(self.role)
             params.is_first_trainer = self.role.is_first_worker()
 
             # Step4: According to the parameters-> TRAINING_ROLE, decide which method to run
@@ -169,6 +169,7 @@ class FleetDistRunnerBase(object):
             :train_result: the dict of training log
         """
         # step5: define Executor and run startup program
+        fleet.init_worker()
         exe = fluid.Executor(fluid.CPUPlace())
         exe.run(fleet.startup_program)
 
@@ -179,7 +180,7 @@ class FleetDistRunnerBase(object):
         dataset = self.dataset_reader(self.inputs, params)
         file_list = [str(params.train_files_path) + "/%s" % x
                      for x in os.listdir(params.train_files_path)]
-        if params.is_local_cluster:
+        if params.training_method == "local_cluster":
             file_list = fleet.split_files(file_list)
         dataset.set_filelist(file_list)
         logger.info("file list: {}".format(file_list))

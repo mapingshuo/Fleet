@@ -185,10 +185,12 @@ class FleetDistRunnerBase(object):
         logger.info("file list: {}".format(file_list))
 
         all_examples = self.get_example_num(file_list)
+        training_res = []
 
         class fetch_vars(fluid.executor.FetchHandler):
             def handler(self, fetch_target_vars):
                 loss_value = fetch_target_vars[0]
+                training_res.append(loss_value)
                 logger.info(
                     "loss -> {}, at: {}".format(loss_value, time.ctime()))
 
@@ -198,11 +200,13 @@ class FleetDistRunnerBase(object):
             # Notice: function train_from_dataset does not return fetch value
             # Using fetch_vars to get fetch value
             exe.train_from_dataset(program=fleet.main_program, dataset=dataset,
-                                   fetch_handler=fetch_vars([self.loss.name], 1, True))
+                                   fetch_handler=fetch_vars([self.loss.name], 5, True))
             end_time = time.time()
-            speed = float(all_examples) / float(end_time - start_time)
-            logger.info("epoch: %d finished, speed: %f" % (epoch, speed))
-
+            training_time = float(end_time - start_time)
+            speed = float(all_examples) / training_time
+            logger.info("epoch: %d finished, using time: %f ,speed: %f example/s" %
+                        (epoch, training_time, speed))
+            print(training_res)
             if self.role.is_first_worker() and params.test:
                 model_path = str(params.model_path) + '/trainer_' + \
                     str(self.role.worker_index()) + '_epoch_' + str(epoch)
@@ -218,16 +222,6 @@ class FleetDistRunnerBase(object):
         logger.info("Train Success!")
         fleet.stop_worker()
 
-    def get_example_num(self, file_list):
-        count = 0
-        for f in file_list:
-            last_count = count
-            for index, line in enumerate(open(f, 'r')):
-                count += 1
-            logger.info("file: %s has %s examples" % (f, count-last_count))
-        logger.info("Total example: %s" % count)
-        return count
-
     def run_local(self, params):
         logger.info("Local train Success!")
 
@@ -240,3 +234,13 @@ class FleetDistRunnerBase(object):
             :infer_result, type:dict, record the evalution parameter and program resource usage situation
         """
         logger.info("Infer Success")
+
+    def get_example_num(self, file_list):
+        count = 0
+        for f in file_list:
+            last_count = count
+            for index, line in enumerate(open(f, 'r')):
+                count += 1
+            logger.info("file: %s has %s examples" % (f, count-last_count))
+        logger.info("Total example: %s" % count)
+        return count

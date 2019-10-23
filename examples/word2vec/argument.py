@@ -24,7 +24,7 @@ def params_args(args=None):
     :return: dictionary of parameters
     """
     # parameters of model and files
-    params = argparse.ArgumentParser(description='Run word2vec.')
+    params = argparse.ArgumentParser(description='word2vec.')
     params.add_argument("--name", type=str, default="word2vec",
                         help="The name of current model")
     params.add_argument("--train_files_path", type=str, default="train_data",
@@ -64,8 +64,9 @@ def params_args(args=None):
     params.add_argument('--end_batch', type=int, default=13)
 
     # parameters of train method
-    params.add_argument('--is_local', type=int, default=1,
-                        help='Local train or distributed train (default: 1)')
+    params.add_argument('--training_mode', type=str, default="",
+                        choices=["local", "local_cluster", "cloud"]
+                        help='Local train or local clust or distributed train')
     params.add_argument('--test', type=bool, default=False,
                         help='support model save and upload')
 

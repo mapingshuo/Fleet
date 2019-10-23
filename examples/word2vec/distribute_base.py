@@ -103,13 +103,16 @@ class FleetDistRunnerBase(object):
         Args:
             :params params: the hyper parameters of network
         """
-        # Step1: get the environment variable
-        params.cpu_num = os.getenv("CPU_NUM")
+
         if params.training_method == "local":
             logger.info("Local train start")
             self.run_local(params)
         else:
             logger.info("Distributed train start")
+
+            # Step1: get the environment variable
+            params.cpu_num = os.getenv("CPU_NUM")
+
             # Step2: Init distribute training role
             self.role = role_maker.PaddleCloudRoleMaker()
             fleet.init(self.role)

@@ -104,10 +104,10 @@ class FleetDistRunnerBase(object):
             :params params: the hyper parameters of network
         """
         if params.training_method == "local":
-            logger.info("local train start")
+            logger.info("Local train start")
             self.run_local(params)
         else:
-            logger.info("distributed train start")
+            logger.info("Distributed train start")
             # Step1: get the environment variable
             params.cpu_num = os.getenv("CPU_NUM")
 
@@ -198,7 +198,7 @@ class FleetDistRunnerBase(object):
             # Notice: function train_from_dataset does not return fetch value
             # Using fetch_vars to get more information
             exe.train_from_dataset(program=fleet.main_program, dataset=dataset,
-                                   fetch_handler=fetch_vars([self.loss.name], 5, False))
+                                   fetch_handler=fetch_vars([self.loss.name], 5, True))
             end_time = time.time()
             training_time = float(end_time - start_time)
             speed = float(all_examples) / training_time
@@ -210,18 +210,8 @@ class FleetDistRunnerBase(object):
                     str(self.role.worker_index()) + '_epoch_' + str(epoch)
                 fleet.save_persistables(executor=exe, dirname=model_path)
 
-        if self.role.is_first_worker():
-            train_method = '_dataset_train'
-            log_path = str(params.log_path + '/' +
-                           str(self.role.worker_index()) + train_method + '.log')
-            model_path = str(params.model_path + '/final' + train_method)
-            fleet.save_persistables(executor=exe, dirname=model_path)
-
         logger.info("Train Success!")
         fleet.stop_worker()
-
-    def run_local(self, params):
-        logger.info("Local train Success!")
 
     def run_infer(self, params, model_path):
         """
@@ -232,6 +222,52 @@ class FleetDistRunnerBase(object):
             :infer_result, type:dict, record the evalution parameter and program resource usage situation
         """
         logger.info("Infer Success")
+
+    def run_local(self, params):
+        self.inputs = self.input_data(params)
+        self.loss = self.net(self.inputs, params)
+        self.optimizer = fluid.optimizer.SGD(
+            learning_rate=fluid.layers.exponential_decay(
+                learning_rate=params.learning_rate,
+                decay_steps=params.decay_steps,
+                decay_rate=params.decay_rate,
+                staircase=True))
+        self.optimizer.minimize(self.loss)
+
+        dataset = self.dataset_reader(self.inputs, params)
+        file_list = [str(params.train_files_path) + "/%s" % x
+                     for x in os.listdir(params.train_files_path)]
+        dataset.set_filelist(file_list)
+        all_examples = self.get_example_num(file_list)
+        logger.info("file list: {}".format(file_list))
+
+        exe = fluid.Executor(fluid.CPUPlace())
+        exe.run(fluid.default_startup_program())
+
+        for epoch in range(params.epochs):
+            class fetch_vars(fluid.executor.FetchHandler):
+                def handler(self, fetch_target_vars):
+                    loss_value = fetch_target_vars[0]
+                    logger.info(
+                        "epoch -> {}, loss -> {}, at: {}".format(epoch, loss_value, time.ctime()))
+
+            start_time = time.time()
+            # Notice: function train_from_dataset does not return fetch value
+            # Using fetch_vars to get more information
+            exe.train_from_dataset(program=fleet.main_program, dataset=dataset,
+                                   fetch_handler=fetch_vars([self.loss.name], 5, True))
+            end_time = time.time()
+            training_time = float(end_time - start_time)
+            speed = float(all_examples) / training_time
+            logger.info("epoch: %d finished, using time: %f s ,speed: %f example/s" %
+                        (epoch, training_time, speed))
+
+        if params.test:
+            model_path = str(params.model_path) + \
+                '/local_' + '_epoch_' + str(epoch)
+            fluid.io.save_persistables(executor=exe, dirname=model_path)
+
+        logger.info("Local train Success!")
 
     def get_example_num(self, file_list):
         count = 0

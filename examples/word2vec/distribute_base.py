@@ -40,13 +40,13 @@ class FleetDistRunnerBase(object):
         This class abstracts the training process into several major steps:
         1. input_data: input data of network, this function should be realized by user
         2. net: network definition, this function should be defined by user
-        4. infer net: network for test, this function should be defined by user
-        5. run_pserver: run parameter server program
-        3. run_trainer: run trainer, choose the way of training network according to requirement params
-        4. run_infer: prediction based on the trained model
-        5. run_local: run local program
-        5. dataset_reader: using dataset method get data, this function should be realized by user
-        6. runtime_main: program entry, get the environment parameters, decide which function to call
+        3. infer net: network for test, this function should be defined by user
+        4. run_pserver: run parameter server program
+        5. run_trainer: run trainer, choose the way of training network according to requirement params
+        6. run_infer: prediction based on the trained model
+        7. run_local: run local program
+        8. dataset_reader: using dataset method get data, this function should be realized by user
+        9. runtime_main: program entry, get the environment parameters, decide which function to call
     """
 
     def input_data(self, params):
@@ -185,28 +185,26 @@ class FleetDistRunnerBase(object):
         logger.info("file list: {}".format(file_list))
 
         all_examples = self.get_example_num(file_list)
-        training_res = []
-
-        class fetch_vars(fluid.executor.FetchHandler):
-            def handler(self, fetch_target_vars):
-                loss_value = fetch_target_vars[0]
-                training_res.append(loss_value)
-                logger.info(
-                    "loss -> {}, at: {}".format(loss_value, time.ctime()))
 
         # step7: begin to train your model, good luck
         for epoch in range(params.epochs):
+            class fetch_vars(fluid.executor.FetchHandler):
+                def handler(self, fetch_target_vars):
+                    loss_value = fetch_target_vars[0]
+                    logger.info(
+                        "epoch -> {}, loss -> {}, at: {}".format(epoch, loss_value, time.ctime()))
+
             start_time = time.time()
             # Notice: function train_from_dataset does not return fetch value
-            # Using fetch_vars to get fetch value
+            # Using fetch_vars to get more information
             exe.train_from_dataset(program=fleet.main_program, dataset=dataset,
-                                   fetch_handler=fetch_vars([self.loss.name], 5, True))
+                                   fetch_handler=fetch_vars([self.loss.name], 5, False))
             end_time = time.time()
             training_time = float(end_time - start_time)
             speed = float(all_examples) / training_time
-            logger.info("epoch: %d finished, using time: %f ,speed: %f example/s" %
+            logger.info("epoch: %d finished, using time: %f s ,speed: %f example/s" %
                         (epoch, training_time, speed))
-            print(training_res)
+
             if self.role.is_first_worker() and params.test:
                 model_path = str(params.model_path) + '/trainer_' + \
                     str(self.role.worker_index()) + '_epoch_' + str(epoch)

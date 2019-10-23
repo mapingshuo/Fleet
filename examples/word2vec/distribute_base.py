@@ -103,7 +103,11 @@ class FleetDistRunnerBase(object):
         Args:
             :params params: the hyper parameters of network
         """
+<<<<<<< HEAD
         if params.training_method == "local":
+=======
+        if params.training_method=="local":
+>>>>>>> 37fd1cd8b66572448706642c2f42ccb062b0ab8a
             logger.info("local train start")
             self.run_local(params)
         else:
@@ -114,8 +118,13 @@ class FleetDistRunnerBase(object):
             # Step3: Configure communication IP and ports
             self.role = role_maker.PaddleCloudRoleMaker()
             fleet.init(self.role)
+<<<<<<< HEAD
 
             # Step2: decide communication mode between PSERVER & TRAINER
+=======
+            
+	    # Step2: decide communication mode between PSERVER & TRAINER
+>>>>>>> 37fd1cd8b66572448706642c2f42ccb062b0ab8a
             self.strategy = DistributeTranspilerConfig()
             self.strategy.sync_mode = False
             self.strategy.geo_sgd_mode = True
@@ -170,7 +179,11 @@ class FleetDistRunnerBase(object):
         """
         # step5: define Executor and run startup program
         fleet.init_worker()
+<<<<<<< HEAD
         exe = fluid.Executor(fluid.CPUPlace())
+=======
+	exe = fluid.Executor(fluid.CPUPlace())
+>>>>>>> 37fd1cd8b66572448706642c2f42ccb062b0ab8a
         exe.run(fleet.startup_program)
 
         # step6: init dataset reader

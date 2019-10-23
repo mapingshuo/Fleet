@@ -103,14 +103,13 @@ class FleetDistRunnerBase(object):
         Args:
             :params params: the hyper parameters of network
         """
+        # Step1: get the environment variable
+        params.cpu_num = os.getenv("CPU_NUM")
         if params.training_method == "local":
             logger.info("Local train start")
             self.run_local(params)
         else:
             logger.info("Distributed train start")
-            # Step1: get the environment variable
-            params.cpu_num = os.getenv("CPU_NUM")
-
             # Step2: Init distribute training role
             self.role = role_maker.PaddleCloudRoleMaker()
             fleet.init(self.role)
@@ -120,6 +119,7 @@ class FleetDistRunnerBase(object):
             self.strategy.sync_mode = False
             self.strategy.geo_sgd_mode = True
             self.strategy.geo_sgd_need_push_nums = 400
+            params.decay_steps = params.decay_steps/self.role.worker_num()
 
             # step4: Creat network and minimize loss
             self.inputs = self.input_data(params)
@@ -254,7 +254,7 @@ class FleetDistRunnerBase(object):
             start_time = time.time()
             # Notice: function train_from_dataset does not return fetch value
             # Using fetch_vars to get more information
-            exe.train_from_dataset(program=fleet.main_program, dataset=dataset,
+            exe.train_from_dataset(program=fluid.default_main_program(), dataset=dataset,
                                    fetch_handler=fetch_vars([self.loss.name], 5, True))
             end_time = time.time()
             training_time = float(end_time - start_time)

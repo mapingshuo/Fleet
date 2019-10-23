@@ -103,11 +103,7 @@ class FleetDistRunnerBase(object):
         Args:
             :params params: the hyper parameters of network
         """
-<<<<<<< HEAD
         if params.training_method == "local":
-=======
-        if params.training_method=="local":
->>>>>>> 37fd1cd8b66572448706642c2f42ccb062b0ab8a
             logger.info("local train start")
             self.run_local(params)
         else:
@@ -115,22 +111,19 @@ class FleetDistRunnerBase(object):
             # Step1: get the environment variable
             params.cpu_num = os.getenv("CPU_NUM")
 
-            # Step3: Configure communication IP and ports
+            # Step2: Init distribute training role
             self.role = role_maker.PaddleCloudRoleMaker()
             fleet.init(self.role)
-<<<<<<< HEAD
+            params.is_first_trainer = self.role.is_first_worker()
+            params.current_id = self.role.worker_index()
 
-            # Step2: decide communication mode between PSERVER & TRAINER
-=======
-            
-	    # Step2: decide communication mode between PSERVER & TRAINER
->>>>>>> 37fd1cd8b66572448706642c2f42ccb062b0ab8a
+            # Step3: decide distribute training strategy between PSERVER & TRAINER
             self.strategy = DistributeTranspilerConfig()
             self.strategy.sync_mode = False
             self.strategy.geo_sgd_mode = True
             self.strategy.geo_sgd_need_push_nums = 400
 
-            # step4 Creat network and minize loss
+            # step4: Creat network and minimize loss
             self.inputs = self.input_data(params)
 
             self.loss = self.net(self.inputs, params)
@@ -144,9 +137,8 @@ class FleetDistRunnerBase(object):
             self.optimizer = fleet.distributed_optimizer(
                 self.optimizer, self.strategy)
             self.optimizer.minimize(self.loss)
-            params.is_first_trainer = self.role.is_first_worker()
 
-            # Step4: According to the parameters-> TRAINING_ROLE, decide which method to run
+            # Step5: According to the parameters-> TRAINING_ROLE, decide which method to run
             if self.role.is_server():
                 self.run_pserver(params)
             elif self.role.is_worker():
@@ -179,11 +171,7 @@ class FleetDistRunnerBase(object):
         """
         # step5: define Executor and run startup program
         fleet.init_worker()
-<<<<<<< HEAD
         exe = fluid.Executor(fluid.CPUPlace())
-=======
-	exe = fluid.Executor(fluid.CPUPlace())
->>>>>>> 37fd1cd8b66572448706642c2f42ccb062b0ab8a
         exe.run(fleet.startup_program)
 
         # step6: init dataset reader

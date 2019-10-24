@@ -13,11 +13,100 @@
 # limitations under the License.
 import numpy as np
 import io
+import six
+import os
+import paddle
 import paddle.fluid.incubate.data_generator as dg
 
 
-neg_num=5
+neg_num = 5
 dict_path = "./test_build_dict"
+
+
+def _is_unicode(s):
+    if six.PY2:
+        if isinstance(s, unicode):
+            return True
+    else:
+        if isinstance(s, str):
+            return True
+    return False
+
+
+def _to_unicode(s, ignore_errors=False):
+    if _is_unicode(s):
+        return s
+    error_mode = "ignore" if ignore_errors else "strict"
+    return s.decode("utf-8", errors=error_mode)
+
+
+def native_to_unicode(s):
+    if _is_unicode(s):
+        return s
+    try:
+        return _to_unicode(s)
+    except UnicodeDecodeError:
+        res = _to_unicode(s, ignore_errors=True)
+        return res
+
+
+def strip_lines(line, vocab):
+    return replace_oov(vocab, native_to_unicode(line))
+
+
+def replace_oov(original_vocab, line):
+    """Replace out-of-vocab words with "<UNK>".
+    This maintains compatibility with published results.
+    Args:
+        original_vocab: a set of strings (The standard vocabulary for the dataset)
+        line: a unicode string - a space-delimited sequence of words.
+    Returns:
+        a unicode string - a space-delimited sequence of words.
+    """
+    return u" ".join([
+        word if word in original_vocab else u"<UNK>" for word in line.split()
+    ])
+
+
+def reader_creator(file_dir, word_to_id):
+    def reader():
+        files = os.listdir(file_dir)
+        for fi in files:
+            with open(file_dir + '/' + fi, "r") as f:
+                for line in f:
+                    if ':' in line:
+                        pass
+                    else:
+                        line = strip_lines(line.lower(), word_to_id)
+                        line = line.split()
+                        yield [word_to_id[line[0]]], [word_to_id[line[1]]], [
+                            word_to_id[line[2]]
+                        ], [word_to_id[line[3]]], [
+                            word_to_id[line[0]], word_to_id[line[1]],
+                            word_to_id[line[2]]
+                        ]
+
+    return reader
+
+
+def BuildWord_IdMap(dict_path):
+    word_to_id = dict()
+    id_to_word = dict()
+
+    with open(dict_path, 'r') as f:
+        print("dict path : %s" % dict_path)
+        for line in f:
+            word_to_id[line.split(' ')[0]] = int(line.split(' ')[1])
+            id_to_word[int(line.split(' ')[1])] = line.split(' ')[0]
+    return word_to_id, id_to_word
+
+
+def prepare_data(file_dir, dict_path, batch_size):
+    w2i, i2w = BuildWord_IdMap(dict_path)
+    vocab_size = len(i2w)
+    reader = paddle.batch(reader_creator(file_dir, w2i), batch_size)
+    return vocab_size, reader, i2w
+
 
 class MyDataset(dg.MultiSlotDataGenerator):
     def load_resource(self, dict_path):
@@ -34,7 +123,6 @@ class MyDataset(dg.MultiSlotDataGenerator):
         np_power = np.power(np.array(self.id_frequencys), 0.75)
         self.id_frequencys_pow = np_power / np_power.sum()
         self.dict_size = len(self.id_counts)
-        
 
     def get_context_words(self, words, idx):
         """
@@ -45,13 +133,14 @@ class MyDataset(dg.MultiSlotDataGenerator):
         """
         #target_window = self.random_generator()
         target_window = 2
-        start_point = idx - target_window  # if (idx - target_window) > 0 else 0
+        # if (idx - target_window) > 0 else 0
+        start_point = idx - target_window
         if start_point < 0:
             start_point = 0
         end_point = idx + target_window
         targets = words[start_point:idx] + words[idx + 1:end_point + 1]
         return targets
-    
+
     def generate_sample(self, line):
         def data_iter():
             cs = np.array(self.id_frequencys_pow).cumsum()
@@ -61,10 +150,12 @@ class MyDataset(dg.MultiSlotDataGenerator):
                     word_ids, idx)
                 for context_id in context_word_ids:
                     neg_array = cs.searchsorted(np.random.sample(neg_num))
-                    neg_id = [ int(str(i)) for i in neg_array ]
-                    output = [('input_word', [int(target_id)]), ('true_label', [int(context_id)]), ('neg_label', neg_id)]
+                    neg_id = [int(str(i)) for i in neg_array]
+                    output = [('input_word', [int(target_id)]), ('true_label', [
+                        int(context_id)]), ('neg_label', neg_id)]
                     yield output
         return data_iter
+
 
 if __name__ == "__main__":
     d = MyDataset()

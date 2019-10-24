@@ -1,6 +1,5 @@
 #!/bin/bash
 echo "WARNING: This script only for run PaddlePaddle Fluid on one node"
-echo "Running 2X2 Parameter Server model"
 
 if [ ! -d "./model" ]; then
   mkdir ./model
@@ -42,6 +41,7 @@ role=$2
 
 if [[ ${training_method} = "local" ]]
 then
+    echo "Run Local Training"
     python -u model.py --training_method=${training_method} &> ./log/local_training.log &
 fi
 

@@ -29,6 +29,7 @@ import paddle.fluid.incubate.fleet.base.role_maker as role_maker
 from paddle.fluid.incubate.fleet.parameter_server.distribute_transpiler import fleet
 from paddle.fluid.incubate.fleet.utils import fleet_barrier_util
 from paddle.fluid.transpiler.distribute_transpiler import DistributeTranspilerConfig
+from dataset_generator import prepare_data
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("fluid")
@@ -46,8 +47,10 @@ class FleetDistRunnerBase(object):
         5. run_trainer: run trainer, choose the way of training network according to requirement params
         6. run_infer: prediction based on the trained model
         7. run_local: run local program
-        8. dataset_reader: using dataset method get data, this function should be realized by user
-        9. runtime_main: program entry, get the environment parameters, decide which function to call
+        8. run_local_cluster: using multiprocess simulation distributed training
+        9. run_cloud: distributed training using parameter server
+        10. dataset_reader: using dataset method get data, this function should be realized by user
+        11. runtime_main: program entry, get the environment parameters, decide which function to call
     """
 
     def input_data(self, params):
@@ -107,49 +110,52 @@ class FleetDistRunnerBase(object):
         if params.training_method == "local":
             logger.info("Local train start")
             self.run_local(params)
-        else if params.training_method == "local_cluster":
+        elif params.training_method == "local_cluster":
             logger.info("Local cluster train start")
             self.run_local_cluster(params)
-        else if params.training_method == "cloud":
+        elif params.training_method == "cloud":
             logger.info("Cloud train start")
-            # Step1: get the environment variable
-            params.cpu_num = os.getenv("CPU_NUM")
+            self.run_cloud(params)
 
-            # Step2: Init distribute training role
-            self.role = role_maker.PaddleCloudRoleMaker()
-            fleet.init(self.role)
-            # Step3: decide distribute training strategy between PSERVER & TRAINER
-            self.strategy = DistributeTranspilerConfig()
-            self.strategy.sync_mode = False
-            self.strategy.geo_sgd_mode = True
-            self.strategy.geo_sgd_need_push_nums = 400
-            params.decay_steps = params.decay_steps/self.role.worker_num()
+    def run_cloud(self, params):
+        # Step1: get the environment variable
+        params.cpu_num = int(os.getenv("CPU_NUM"))
 
-            # step4: Creat network and minimize loss
-            self.inputs = self.input_data(params)
+        # Step2: Init distribute training role
+        self.role = role_maker.PaddleCloudRoleMaker()
+        fleet.init(self.role)
 
-            self.loss = self.net(self.inputs, params)
+        # Step3: decide distribute training strategy between PSERVER & TRAINER
+        self.strategy = DistributeTranspilerConfig()
+        self.strategy.sync_mode = False
+        self.strategy.geo_sgd_mode = True
+        self.strategy.geo_sgd_need_push_nums = 400
+        # update decay step when using GEO-SGD
+        params.decay_steps = params.decay_steps/self.role.worker_num()
 
-            self.optimizer = fluid.optimizer.SGD(
-                learning_rate=fluid.layers.exponential_decay(
-                    learning_rate=params.learning_rate,
-                    decay_steps=params.decay_steps,
-                    decay_rate=params.decay_rate,
-                    staircase=True))
-            self.optimizer = fleet.distributed_optimizer(
-                self.optimizer, self.strategy)
-            self.optimizer.minimize(self.loss)
+        # step4: Creat network and minimize loss
+        self.inputs = self.input_data(params)
+        self.loss = self.net(self.inputs, params)
+        self.optimizer = fluid.optimizer.SGD(
+            learning_rate=fluid.layers.exponential_decay(
+                learning_rate=params.learning_rate,
+                decay_steps=params.decay_steps,
+                decay_rate=params.decay_rate,
+                staircase=True))
+        self.optimizer = fleet.distributed_optimizer(
+            self.optimizer, self.strategy)
+        self.optimizer.minimize(self.loss)
 
-            # Step5: According to the parameters-> TRAINING_ROLE, decide which method to run
-            if self.role.is_server():
-                self.run_pserver(params)
-            elif self.role.is_worker():
-                self.run_dataset_trainer(params)
-            else:
-                raise ValueError(
-                    "Please choice training role for current node : PSERVER / TRAINER")
+        # Step5: According to the parameters-> TRAINING_ROLE, decide which method to run
+        if self.role.is_server():
+            self.run_pserver(params)
+        elif self.role.is_worker():
+            self.run_dataset_trainer(params)
+        else:
+            raise ValueError(
+                "Please choice training role for current node : PSERVER / TRAINER")
 
-            logger.info("Distribute train success!")
+        logger.info("Distribute train success!")
 
     def run_pserver(self, params):
         """
@@ -213,6 +219,7 @@ class FleetDistRunnerBase(object):
                 model_path = str(params.model_path) + '/trainer_' + \
                     str(self.role.worker_index()) + '_epoch_' + str(epoch)
                 fleet.save_persistables(executor=exe, dirname=model_path)
+                fleet.save_inference_model
 
         logger.info("Train Success!")
         fleet.stop_worker()
@@ -225,6 +232,63 @@ class FleetDistRunnerBase(object):
         Returns
             :infer_result, type:dict, record the evalution parameter and program resource usage situation
         """
+        params.vocab_size, test_reader, id2word = prepare_data(
+            params.test_files_path, params.infer_dict_path, batch_size=params.infer_batch_size)
+
+        place = fluid.CPUPlace()
+        exe = fluid.Executor(place)
+        infer_result = {}
+        startup_program = fluid.framework.Program()
+        test_program = fluid.framework.Program()
+
+        with fluid.framework.program_guard(test_program, startup_program):
+            values, pred = self.infer_net(params)
+            logger.info("model_path: %s" % model_path)
+            fluid.io.load_persistables(
+                executor=exe, dirname=model_path, main_program=fluid.default_main_program())
+
+            accum_num = 0
+            accum_num_sum = 0.0
+            step_id = 0
+            for data in test_reader():
+                step_id += 1
+                b_size = len([dat[0] for dat in data])
+                wa = np.array([dat[0] for dat in data]).astype(
+                    "int64").reshape(b_size, 1)
+                wb = np.array([dat[1] for dat in data]).astype(
+                    "int64").reshape(b_size, 1)
+                wc = np.array([dat[2] for dat in data]).astype(
+                    "int64").reshape(b_size, 1)
+
+                label = [dat[3] for dat in data]
+                input_word = [dat[4] for dat in data]
+                para = exe.run(fluid.default_main_program(),
+                               feed={
+                                   "analogy_a": wa, "analogy_b": wb, "analogy_c": wc,
+                                   "all_label":
+                                       np.arange(params.vocab_size).reshape(
+                                           params.vocab_size, 1).astype("int64"),
+                },
+                    fetch_list=[pred.name, values],
+                    return_numpy=False)
+                pre = np.array(para[0])
+                val = np.array(para[1])
+                for ii in range(len(label)):
+                    top4 = pre[ii]
+                    accum_num_sum += 1
+                    for idx in top4:
+                        if int(idx) in input_word[ii]:
+                            continue
+                        if int(idx) == int(label[ii][0]):
+                            accum_num += 1
+                        break
+                if step_id % 1 == 0:
+                    logger.info("step:%d %d " % (step_id, accum_num))
+            acc = 1.0 * accum_num / accum_num_sum
+            logger.info("acc:%.3f " % acc)
+            infer_result['acc'] = acc
+        with open(model_path + '.acc', 'w') as fout:
+            fout.write(str(infer_result) + '\n')
         logger.info("Infer Success")
 
     def run_local(self, params):
@@ -268,6 +332,7 @@ class FleetDistRunnerBase(object):
             model_path = str(params.model_path) + \
                 '/local_' + '_epoch_' + str(epoch)
             fluid.io.save_persistables(executor=exe, dirname=model_path)
+            self.run_infer(params, model_path)
 
         logger.info("Local train Success!")
 
@@ -282,10 +347,11 @@ class FleetDistRunnerBase(object):
         trainers = int(os.getenv("PADDLE_TRAINERS_NUM"))
         pserver_ports = os.getenv("PADDLE_PORT")
         pserver_ip = os.getenv("PADDLE_PSERVERS")
+        pserver_endpoints = []
 
         for port in pserver_ports.split(","):
             pserver_endpoints.append(
-                ':'.join([params.pserver_ip, port]))
+                ':'.join([pserver_ip, port]))
 
         self.role = role_maker.UserDefinedRoleMaker(
             current_id=current_id,

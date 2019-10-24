@@ -27,6 +27,7 @@ import paddle
 import paddle.fluid as fluid
 import paddle.fluid.incubate.fleet.base.role_maker as role_maker
 from paddle.fluid.incubate.fleet.parameter_server.distribute_transpiler import fleet
+from paddle.fluid.incubate.fleet.utils import fleet_barrier_util
 from paddle.fluid.transpiler.distribute_transpiler import DistributeTranspilerConfig
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s')
@@ -103,20 +104,20 @@ class FleetDistRunnerBase(object):
         Args:
             :params params: the hyper parameters of network
         """
-
         if params.training_method == "local":
             logger.info("Local train start")
             self.run_local(params)
-        else:
-            logger.info("Distributed train start")
-
+        else if params.training_method == "local_cluster":
+            logger.info("Local cluster train start")
+            self.run_local_cluster(params)
+        else if params.training_method == "cloud":
+            logger.info("Cloud train start")
             # Step1: get the environment variable
             params.cpu_num = os.getenv("CPU_NUM")
 
             # Step2: Init distribute training role
             self.role = role_maker.PaddleCloudRoleMaker()
             fleet.init(self.role)
-
             # Step3: decide distribute training strategy between PSERVER & TRAINER
             self.strategy = DistributeTranspilerConfig()
             self.strategy.sync_mode = False
@@ -264,13 +265,66 @@ class FleetDistRunnerBase(object):
             speed = float(all_examples) / training_time
             logger.info("epoch: %d finished, using time: %f s ,speed: %f example/s" %
                         (epoch, training_time, speed))
-
-        if params.test:
             model_path = str(params.model_path) + \
                 '/local_' + '_epoch_' + str(epoch)
             fluid.io.save_persistables(executor=exe, dirname=model_path)
 
         logger.info("Local train Success!")
+
+    def run_local_cluster(self, params):
+        current_role = os.getenv("TRAINING_ROLE")
+        if current_role == "PSERVER":
+            current_role = role_maker.Role.SERVER
+        elif current_role == "TRAINER":
+            current_role = role_maker.Role.WORKER
+
+        current_id = int(os.getenv("PADDLE_TRAINER_ID"))
+        trainers = int(os.getenv("PADDLE_TRAINERS_NUM"))
+        pserver_ports = os.getenv("PADDLE_PORT")
+        pserver_ip = os.getenv("PADDLE_PSERVERS")
+
+        for port in pserver_ports.split(","):
+            pserver_endpoints.append(
+                ':'.join([params.pserver_ip, port]))
+
+        self.role = role_maker.UserDefinedRoleMaker(
+            current_id=current_id,
+            role=current_role,
+            worker_num=trainers,
+            server_endpoints=pserver_endpoints)
+        fleet.init(self.role)
+
+        self.strategy = DistributeTranspilerConfig()
+        self.strategy.sync_mode = False
+        self.strategy.geo_sgd_mode = True
+        self.strategy.geo_sgd_need_push_nums = 400
+        params.decay_steps = params.decay_steps/self.role.worker_num()
+
+        # step4: Creat network and minimize loss
+        self.inputs = self.input_data(params)
+
+        self.loss = self.net(self.inputs, params)
+
+        self.optimizer = fluid.optimizer.SGD(
+            learning_rate=fluid.layers.exponential_decay(
+                learning_rate=params.learning_rate,
+                decay_steps=params.decay_steps,
+                decay_rate=params.decay_rate,
+                staircase=True))
+        self.optimizer = fleet.distributed_optimizer(
+            self.optimizer, self.strategy)
+        self.optimizer.minimize(self.loss)
+
+        # Step5: According to the parameters-> TRAINING_ROLE, decide which method to run
+        if self.role.is_server():
+            self.run_pserver(params)
+        elif self.role.is_worker():
+            self.run_dataset_trainer(params)
+        else:
+            raise ValueError(
+                "Please choice training role for current node : PSERVER / TRAINER")
+
+        logger.info("Distribute train success!")
 
     def get_example_num(self, file_list):
         count = 0

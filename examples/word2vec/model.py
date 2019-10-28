@@ -165,4 +165,7 @@ class word2vec(FleetDistRunnerBase):
 if __name__ == '__main__':
     params = params_args()
     model = word2vec()
-    model.runtime_main(params)
+    if params.infer:
+        model.run_infer(params, params.model_path)
+    else:
+        model.runtime_main(params)

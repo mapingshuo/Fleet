@@ -37,7 +37,7 @@ export PADDLE_PSERVER_NUMS=2
 export PADDLE_TRAINERS=2
 
 training_method=$1
-role=$2
+model_path=$2
 
 if [[ ${training_method} = "local" ]]
 then
@@ -45,7 +45,13 @@ then
     python -u model.py --training_method=${training_method} &> ./log/local_training.log &
 fi
 
-if [[ ${role} = "ps" && ${training_method}!="local" ]]
+if [[ ${training_method} = "infer" ]]
+then
+    echo "Run Local Training"
+    python -u model.py --infer=True --model_path=${model_path} &> ./log/infer.log &
+fi
+
+if [[ ${training_method} = "local_cluster" ]]
 then
     export TRAINING_ROLE=PSERVER
     export GLOG_v=0
@@ -59,10 +65,7 @@ then
 	      PADDLE_TRAINER_ID=$i
 	      python -u model.py --training_method=${training_method} &> ./log/pserver.$i.log &
     done
-fi
 
-if [[ ${role} = "tr" && ${training_method}!="local" ]]
-then
     export TRAINING_ROLE=TRAINER
     export GLOG_v=0
     export GLOG_logtostderr=1

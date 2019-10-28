@@ -69,6 +69,8 @@ def params_args(args=None):
                         help='Local train or local clust or distributed train')
     params.add_argument('--test', type=bool, default=False,
                         help='support model save and upload')
+    params.add_argument('--infer', type=bool, default=False,
+                        help="Decide whether to train or infer")
 
     # parameters of distribute training
     params.add_argument("--is_sparse", type=bool, default=True)

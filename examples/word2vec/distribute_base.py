@@ -212,7 +212,7 @@ class FleetDistRunnerBase(object):
             end_time = time.time()
             training_time = float(end_time - start_time)
             speed = float(all_examples) / training_time
-            logger.info("epoch: %d finished, using time: %f s ,speed: %f example/s" %
+            logger.info("epoch: %d finished, using time: %f s ,speed: %f sentences/s" %
                         (epoch, training_time, speed))
 
             if self.role.is_first_worker() and params.test:

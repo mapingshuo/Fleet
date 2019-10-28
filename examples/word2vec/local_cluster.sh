@@ -18,19 +18,12 @@ fi
 
 # environment variables for fleet distribute training
 export PADDLE_TRAINER_ID=0
-export PADDLE_TRAINERS_NUM=2
-export PADDLE_PORT=36011,36012
-export PADDLE_PSERVERS=127.0.0.1
-export POD_IP=127.0.0.1
 export CPU_NUM=2
 export OUTPUT_PATH="output"
-export SYS_JOB_ID="local_cluster"
-export FLAGS_communicator_send_queue_size=1
-export FLAGS_communicator_thread_pool_size=5
-export FLAGS_communicator_max_merge_var_num=20
-export FLAGS_communicator_fake_rpc=0
 
-export PADDLE_PSERVER_PORTS=36011,36012
+export FLAGS_rpc_retry_times=3
+export FLAGS_communicator_thread_pool_size=6
+export PADDLE_PSERVERS_IP_PORT_LIST="127.0.0.1:36011,127.0.0.1:36012"
 export PADDLE_PSERVER_PORT_ARRAY=(36011 36012)
 
 export PADDLE_PSERVER_NUMS=2
@@ -63,6 +56,8 @@ then
         cur_port=${PADDLE_PSERVER_PORT_ARRAY[$i]}
         echo "PADDLE WILL START PSERVER "$cur_port
 	      PADDLE_TRAINER_ID=$i
+        export PADDLE_PORT=${cur_port}
+        export POD_IP=127.0.0.1
 	      python -u model.py --training_method=${training_method} &> ./log/pserver.$i.log &
     done
 

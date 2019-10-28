@@ -1,29 +1,23 @@
-#!/bin/bash
-if [ ! -d "./data" ]; then
-  mkdir data
-fi
-wget https://paddlerec.bj.bcebos.com/word2vec/text.tar --no-check-certificate
-tar xvf text.tar
-rm text.tar
-mv text data/
+#! /bin/bash
 
-python preprocess.py --build_dict --build_dict_corpus_dir data/text/ --dict_path data/test_build_dict
+# download train_data
+mkdir data
+wget https://paddlerec.bj.bcebos.com/word2vec/1-billion-word-language-modeling-benchmark-r13output.tar
+tar xvf 1-billion-word-language-modeling-benchmark-r13output.tar
+mv 1-billion-word-language-modeling-benchmark-r13output/training-monolingual.tokenized.shuffled/ data/
 
-python preprocess.py --filter_corpus --dict_path data/test_build_dict --input_corpus_dir data/text --output_corpus_dir data/convert_text8 --min_count 5 --downsample 0.001
+# preprocess data
+python preprocess.py --build_dict --build_dict_corpus_dir data/training-monolingual.tokenized.shuffled --dict_path data/test_build_dict
+python preprocess.py --filter_corpus --dict_path data/test_build_dict --input_corpus_dir data/training-monolingual.tokenized.shuffled --output_corpus_dir data/convert_text8 --min_count 5 --downsample 0.001
+mkdir thirdparty
+mv data/test_build_dict thirdparty/
+mv data/test_build_dict_word_to_id_ thirdparty/
 
-wget https://paddlerec.bj.bcebos.com/word2vec/test_mid_dir.tar --no-check-certificate
-tar xvf test_mid_dir.tar
-rm test_mid_dir.tar
+python preprocess.py --data_resplit --input_corpus_dir=data/convert_text8 --output_corpus_dir=train_data
 
-if [ ! -d "./train_data" ]; then
-  mkdir train_data
-fi
-if [ ! -d "./test_data" ]; then
-  mkdir test_data
-fi
-
-cp ./data/convert_text8/* ./train_data/
-cp ./data/test_build_dict ./
-cp ./data/test_build_dict_word_to_id_ ./
-cp ./data/test_mid_dir/* ./test_data/
+# download test data
+wget https://paddlerec.bj.bcebos.com/word2vec/test_dir.tar
+tar xzvf test_dir.tar
+mv data/test_dir test_data/
+rm -rf data/
 

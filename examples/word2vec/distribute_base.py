@@ -107,6 +107,14 @@ class FleetDistRunnerBase(object):
         Args:
             :params params: the hyper parameters of network
         """
+        id_counts = []
+        with io.open(params.dict_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                word, count = line.split()[0], int(line.split()[1])
+                id_counts.append(count)
+        params.vocab_size = len(id_counts)
+        params.dict_size = len(id_counts)
+
         if params.training_method == "local":
             logger.info("Local train start")
             self.run_local(params)

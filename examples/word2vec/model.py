@@ -91,8 +91,7 @@ class word2vec(FleetDistRunnerBase):
             input_emb_re, neg_emb_w_re, transpose_y=True)
         neg_matmul_re = fluid.layers.reshape(
             neg_matmul, shape=[-1, params.neg_num])
-        neg_logits = fluid.layers.elementwise_add(
-            neg_matmul_re, neg_emb_b_vec)
+        neg_logits = fluid.layers.elementwise_add(neg_matmul_re, neg_emb_b_vec)
         # nce loss
 
         label_ones = fluid.layers.fill_constant_batch_size_like(

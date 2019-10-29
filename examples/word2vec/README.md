@@ -18,8 +18,9 @@ cd Fleet/example/word2vec
 
 ## 数据准备
 可以使用一键命令进行数据的下载与预处理：
-> sh get_data.sh
-
+```bash
+sh get_data.sh
+```
 也可以跟随下述文档，一步步进行数据的准备工作。
 
 ### 训练数据下载
@@ -334,7 +335,9 @@ def dataset_reader(self, inputs, params):
     fluid.io.save_persistables(executor=exe, dirname=model_path)
   ```
 完成以上步骤，便可以开始进行单机的训练。在示例代码中，运行单机训练，需要在代码目录下输入命令：
->sh local_cluster.sh local
+```bash
+sh local_cluster.sh local
+```
 
 日志文件可以在./log/local_training.log中查阅，理想的输出为：
 ```bash
@@ -449,9 +452,9 @@ PaddlePaddle在1.6.0之后新增了`GEO-SGD模式`，这种模式也是多线程
   ```
 完成以上步骤，便可以进行基于GEO-SGD模式的CPU分布式训练。在示例代码中，我们配置一个2x2的参数服务器架构，即两个pserver，两个trainer，进行1个epoch的训练。
 直接使用示例代码运行本地多进程模拟分布式的命令如下：
-
-> sh local_cluster.sh local_cluster
-
+```bash
+sh local_cluster.sh local_cluster
+```
 日志输出如下：
 ```bash
 2019-10-24 08:38:12,669 - INFO - Local cluster train start
@@ -509,9 +512,9 @@ I1024 08:38:52.072788 26181 communicator.cc:484] Geo Sgd Communicator stop done
 word2vec模型的评价方法在数据预处理时已介绍基本思路，代码实现在`distribute_base.py`的`run_infer()`函数中，我们只需配置模型保存的位置即可加载参数进行模型评估，评估的效果用acc表示。默认会在local模式训练完成后自动进行预测。
 
 单独开启模型预测的命令示例如下，请注意调整为自己模型的保存地址
-
-> sh local_cluster.sh infer model/local__epoch_0
-
+```bash
+sh local_cluster.sh infer model/local__epoch_0
+```
 
 ## 调试及优化
 `Fleet-ParameterServer-GeoSgd模式`中，我们需要关注两方面的调优：速度与效果。以下参数会影响到`GEO-SGD`模式的表现。

@@ -337,21 +337,22 @@ class FleetDistRunnerBase(object):
         logger.info("Local train Success!")
 
     def run_local_cluster(self, params):
+        trainers = int(os.getenv("PADDLE_TRAINERS_NUM"))
+        pserver_ip_port_list = os.getenv("PADDLE_PSERVERS_IP_PORT_LIST")
+
+        pserver_ports = os.getenv("PADDLE_PORT")
+        pserver_ip = os.getenv("POD_IP")
+        curr_endpoint = ":".join([pserver_ip, pserver_ports])
+
+        pserver_endpoints = pserver_ip_port_list.split(",")
+
         current_role = os.getenv("TRAINING_ROLE")
         if current_role == "PSERVER":
             current_role = role_maker.Role.SERVER
+            current_id = pserver_endpoints.index(curr_endpoint)
         elif current_role == "TRAINER":
             current_role = role_maker.Role.WORKER
-
-        current_id = int(os.getenv("PADDLE_TRAINER_ID"))
-        trainers = int(os.getenv("PADDLE_TRAINERS_NUM"))
-        pserver_ports = os.getenv("PADDLE_PORT")
-        pserver_ip = os.getenv("PADDLE_PSERVERS")
-        pserver_endpoints = []
-
-        for port in pserver_ports.split(","):
-            pserver_endpoints.append(
-                ':'.join([pserver_ip, port]))
+            current_id = int(os.getenv("PADDLE_TRAINER_ID"))
 
         self.role = role_maker.UserDefinedRoleMaker(
             current_id=current_id,

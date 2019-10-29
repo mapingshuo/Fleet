@@ -56,7 +56,6 @@ then
     do
         cur_port=${PADDLE_PSERVER_PORT_ARRAY[$i]}
         echo "PADDLE WILL START PSERVER "$cur_port
-	      PADDLE_TRAINER_ID=$i
         export PADDLE_PORT=${cur_port}
         export POD_IP=127.0.0.1
 	      python -u model.py --training_method=${training_method} &> ./log/pserver.$i.log &

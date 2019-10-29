@@ -56,6 +56,7 @@ def params_args(args=None):
                         help="The size for embedding layer")
     params.add_argument('--dict_size', type=int, default=0)
     params.add_argument('--nce_num', type=int, default=5)
+    params.add_argument('--neg_num', type=int, default=5)
     params.add_argument('--infer_batch_size', type=int, default=20000)
 
     # parameters of train method

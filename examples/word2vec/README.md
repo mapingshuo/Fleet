@@ -17,7 +17,10 @@ cd Fleet/example/word2vec
 示例代码位于`Fleet/example/word2vec`
 
 ## 数据准备
+可以使用一键命令进行数据的下载与预处理：
+> sh get_data.sh
 
+也可以跟随下述文档，一步步进行数据的准备工作。
 
 ### 训练数据下载
 在本示例中，Word2Vec模型使用`1 Billion Word Language Model Benchmark`数据,下载地址：
@@ -57,20 +60,21 @@ mv data/test_dir/* ./test_data
 下面开始进行数据预处理，主要有两个步骤：1、根据英文语料生成词典；2、根据词典将文本数据转成id，同时进行downsample，按照概率过滤常见词，同时生成word和id映射的文件，名为`词典 + word_to_id`
 第一步：根据英文语料生成词典
 ```bash
-python preprocess.py --build_dict --build_dict_corpus_dir data/training-monolingual.tokenized.shuffled/ --dict_path data/test_build_dict
+python preprocess.py --build_dict --build_dict_corpus_dir data/training-monolingual.tokenized.shuffled --dict_path data/test_build_dict
 ```
 第二步：根据词典将训练文本转成id
 ```bash
-python preprocess.py --filter_corpus --dict_path data/test_build_dict --input_corpus_dir data/training-monolingual.tokenized.shuffled --output_corpus_dir data/convert_data --min_count 5 --downsample 0.001
+python preprocess.py --filter_corpus --dict_path data/test_build_dict --input_corpus_dir data/training-monolingual.tokenized.shuffled --output_corpus_dir data/convert_text8 --min_count 5 --downsample 0.001
 ```
 
 为了能够更好的发挥分布式加速性能，我们建议您将数据进行预处理，进行大小的拆分，推荐您将数据集拆分为1024个文件，以**确保每个训练节点的每个线程都能拿到数据文件**。
 以下脚本可将数据文件拆分为1024份：
 ```bash
-python -u split_files.py --split_part=1024 --file_path="./data/convert_data" --output_path="./train_data"
+python preprocess.py --data_resplit --input_corpus_dir=data/convert_text8 --output_corpus_dir=train_data
 ```
 ## 训练模型
 首先让我们从零开始搭建单机word2vec模型。
+
 ### 模型设计及代码
 本示例实现了基于skip_gram的Word2Vec模型，模型设计可以参考：
 >https://aistudio.baidu.com/aistudio/projectDetail/124377
@@ -97,6 +101,7 @@ def input_data(self, params):
     self.data = [input_word, true_word, neg_word]
     return self.data
 ```
+
 ### 模型组网
 了解数据的输入后，让我们开始组网，模型组网代码位于`model.py`。我们的网络希望能够学习到中心词与临近词的相关关系，同时，降低与负样本词的联系。
 
@@ -188,72 +193,40 @@ def net(self, inputs, params):
 ```
 ### 数据读取
 在本示例中，数据读取使用dataset API。dataset使用可以查阅:
->www.baidu.com
+>[fluid.dataset](https://www.paddlepaddle.org.cn/documentation/docs/zh/1.6/api_cn/dataset_cn.html)
 
 dataset是一种高性能的IO方式，在分布式应用场景中，多线程全异步模式下，使用dataset进行数据读取加速是最佳选择。
 dataset读取数据的代码位于`dataset_generator.py`，核心部分如下：
 ```python
-import paddle.fluid.incubate.data_generator as dg
-
-class MyDataset(dg.MultiSlotDataGenerator):
-    def load_resource(self, dict_path, window_size, batch_size):
-        self.batch_size = batch_size
-        self.id_counts = []
-        word_all_count = 0
-        with io.open(dict_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                word, count = line.split()[0], int(line.split()[1])
-                self.id_counts.append(count)
-                word_all_count += count
-        self.id_frequencys = [
-            float(count) / word_all_count for count in self.id_counts
-        ]
-        np_power = np.power(np.array(self.id_frequencys), 0.75)
-        self.id_frequencys_pow = np_power / np_power.sum()
-        self.dict_size = len(self.id_counts)
-        self.random_generator = NumpyRandomInt(1, window_size + 1)
-
-    def get_context_words(self, words, idx):
-        """
-        Get the context word list of target word.
-        words: the words of the current line
-        idx: input word index
-        window_size: window size
-        """
-        target_window = self.random_generator()
-        start_point = idx - target_window  # if (idx - target_window) > 0 else 0
-        if start_point < 0:
-            start_point = 0
-        end_point = idx + target_window
-        targets = words[start_point:idx] + words[idx + 1:end_point + 1]
-        return targets
-    
-    def generate_sample(self, line):
-        # 数据读取核心代码
-        def data_iter():
-            cs = np.array(self.id_frequencys_pow).cumsum()
-            neg_array = cs.searchsorted(np.random.sample(neg_num))
-            id_ = 0
-            word_ids = [w for w in line.split()]
-            for idx, target_id in enumerate(word_ids):
-                # target_id 当前的中心词，即input_word
-                # context_word_dis 获取窗口中的其他词，作为true_label
-                context_word_ids = self.get_context_words(
-                    word_ids, idx)
-                for context_id in context_word_ids:
-                    neg_id = [ int(str(i)) for i in neg_array ]
-                    output = [('input_word', [int(target_id)]), ('true_label', [int(context_id)]), ('neg_label', neg_id)]
-                    yield output
-                    id_ += 1
-                    # 每个batch内的neg_array一致，该batch结束后，会重新采样一批负样本
-                    if id_ % self.batch_size == 0:
-                        neg_array = cs.searchsorted(np.random.sample(neg_num)) 
-        return data_iter
+def generate_sample(self, line):
+    # 数据读取核心代码
+    def data_iter():
+        cs = np.array(self.id_frequencys_pow).cumsum()
+        neg_array = cs.searchsorted(np.random.sample(neg_num))
+        id_ = 0
+        word_ids = [w for w in line.split()]
+        for idx, target_id in enumerate(word_ids):
+            # target_id 当前的中心词，即input_word
+            # context_word_dis 获取窗口中的其他词，作为true_label
+            context_word_ids = self.get_context_words(
+                word_ids, idx)
+            for context_id in context_word_ids:
+                neg_id = [ int(str(i)) for i in neg_array ]
+                output = [('input_word', [int(target_id)]), ('true_label', [int(context_id)]), ('neg_label', neg_id)]
+                yield output
+                id_ += 1
+                # 每个batch内的neg_array一致，该batch结束后，会重新采样一批负样本
+                if id_ % self.batch_size == 0:
+                    neg_array = cs.searchsorted(np.random.sample(neg_num)) 
+    return data_iter
 ```
+
 下面简要介绍数据IO代码的调试方式，在linux环境下，使用以下命令查看运行结果：
+
 ```bash
 cat data_file | python dataset_generator.py
 ```
+
 输出的数据格式如下，依次为：
 >input_word:size ; input_word:value ; true_label:size ; input_label:value ;neg_label:size ; neg_word:value ;
 
@@ -275,7 +248,11 @@ cat data_file | python dataset_generator.py
 1 955 1 406 5 22 851 202 44666 178398
 ...
 ```
-在模型中引入dataset的方式如下，该部分代码位于`model.py`，使用dataset，第一步是为dataset设置读取的Variable的格式，在`set_use_var`中添加我们在`数据接口`部分中设置好的数据，该数据是`list[variable]`的形式；然后我们需要通过`pipe_command`添加读取数据的脚本文件`dataset_generator.py`，dataset类会调用`fluid.DatasetFactory()`其中的`run_from_stdin()`方法进行读取;读取过程中的线程数由`set_thread()`方法指定，需要说明的是，利用dataset进行模型训练，读取线程与训练时的线程是耦合的，1个读取队列对应1个训练线程，不同线程持有不同文件，这也就是我们在`数据处理`中强调文件数大于线程数的原因所在。最后，数据输入训练线程的batch_size由`set_batch_size()`方法设置。
+如何在模型中引入dataset的读取方式呢？示例代码位于`model.py`：
+1. 使用dataset，第一步是为dataset设置读取的Variable的格式，在`set_use_var`中添加我们在`数据接口`部分中设置好的数据，该数据是`list[variable]`的形式；
+2. 然后我们需要通过`pipe_command`添加读取数据的脚本文件`dataset_generator.py`，dataset类会调用`fluid.DatasetFactory()`其中的`run_from_stdin()`方法进行读取;
+3. 读取过程中的线程数由`set_thread()`方法指定，需要说明的是，利用dataset进行模型训练，读取线程与训练时的线程是耦合的，1个读取队列对应1个训练线程，不同线程持有不同文件，这也就是我们在`数据处理`中强调文件数大于线程数的原因所在。
+4. 最后，数据输入训练线程的batch_size由`set_batch_size()`方法设置。
 ```python
 def dataset_reader(self, inputs, params):
     dataset = fluid.DatasetFactory().create_dataset()
@@ -328,9 +305,10 @@ def dataset_reader(self, inputs, params):
 - 执行训练。
   - 因为dataset设计初衷是保证高速，所以运行于程序底层，与paddlepaddle传统的`feed={dict}`方法不一致，不支持直接通过`train_from_dataset`的返回值监控当前训练的细节，比如loss的变化，但我们可以通过1.6新增的`fetch_handler`方法创建一个新的线程，监听训练过程，不影响训练的效率。该方法需要继承`fluid.executor.FetchHandler`类中的`handler`方法实现一个监听函数。`fetch_target_vars`是一个list，由我们自行指定哪些变量的值需要被监控。
   - 在`exe.train_from_dataset`方法中，指定`fetch_handler`为我们实现的监听函数。可以配置3个超参：
-    - 第一个是`fetch_var_list`，添加我们想要获取的变量的名称，示例中，我们指定为`[self.loss.name]`
-    - 第二个是监听函数的更新频率，单位是s，示例中我们设置为5s更新一次。
-    - 第三个是我们获取的变量的数据类型，若想获得常用的`numpy.ndarray`的格式，则设置为`True`；若想获得`Tensor`，则设置为`False`
+    1. 第一个是`fetch_var_list`，添加我们想要获取的变量的名称，示例中，我们指定为`[self.loss.name]`
+    2. 第二个是监听函数的更新频率，单位是s，示例中我们设置为5s更新一次。
+    3. 第三个是我们获取的变量的数据类型，若想获得常用的`numpy.ndarray`的格式，则设置为`True`；若想获得`Tensor`，则设置为`False`
+   
   ```python
   for epoch in range(params.epochs):
     # 实现监听函数
@@ -377,10 +355,10 @@ def dataset_reader(self, inputs, params):
 ```
 ## 分布式训练——Fluid-GEO-SGD模式
 PaddlePaddle在1.5.0之后新增了`Fleet`的高级分布式API，可以只需数行代码便可将单机模型转换为分布式模型,使用Fleet构建基于参数服务器`Parameter Server`架构的CPU分布式训练架构，可以在CPU集群上加速我们的训练，参数服务器的介绍可以参考：
->www.baidu.com
+>[分布式CPU训练优秀实践](https://www.paddlepaddle.org.cn/documentation/docs/zh/advanced_usage/best_practice/cpu_train_best_practice.html)
 
 传统的参数服务器各个Trainer与Pserver之间的参数交互使用`同步模式（Sync）`，这种模式需要Pserver每个batch都等待所有节点训练完成才会进行下一次训练，可以保证效果与单机对齐，但速度非常慢。Fluid基于简化版的Downpour-SGD实现了`全异步模式（Async）`，这种模式可以做到多线程全异步全局无锁更新，但其限制在于仍然是每个batch通信一次，速度仍有提升的潜力。全异步模式的训练方法，可以参考：
->www.baidu.com
+>[分布式CPU训练优秀实践](https://www.paddlepaddle.org.cn/documentation/docs/zh/advanced_usage/best_practice/cpu_train_best_practice.html)
 
 PaddlePaddle在1.6.0之后新增了`GEO-SGD模式`，这种模式也是多线程全异步全局无锁的高速模式，支持每个节点在本地训练一定步长后，再与Pserver通信，进行全局参数的更新，显著提升了训练速度，特别是对于Word2Vec这类有大量稀疏参数的模型，提速会更加明显。接下来，本示例便展示如何从单机模型构建一个`Fleet-ParameterServer-GeoSgd模式`的CPU分布式训练。
 
@@ -510,9 +488,10 @@ I1024 08:38:52.072788 26181 communicator.cc:484] Geo Sgd Communicator stop done
 2019-10-24 08:38:52,073 - INFO - Distribute train success!
 ```
 注意：本地模拟分布式仅用于熟悉Paddle框架及分布式的使用，并不建议在单机环境下利用分布式模拟来训练模型，会存在很严重的性能与通信瓶颈，多个进程抢占计算资源。
+
 ## 模型保存
 模型保存的使用代码，在上文中已有展现，现进行详细介绍。有关于PaddlePaddle模型保存及加载的使用示例可以参考：
->www.baidu.com
+>[模型/变量的保存、载入与增量训练](https://www.paddlepaddle.org.cn/documentation/docs/zh/user_guides/howto/training/save_load_variables.html)
 
 分布式的模型保存与单机模型保存有细微差别，具体如下：
 - 单机模型保存
@@ -566,5 +545,4 @@ word2vec模型的评价方法在数据预处理时已介绍基本思路，代码
   ```
 ## benchmark及效果复现
 PaddlePaddle分布式模型在word2vec下测试得到的benchmark数据，包括速度、效果及复现方法，可以查阅：
->www.baidu.com
-## 其他资料
+>[PaddlePaddle-Fleet-Word2Vec Benchmark](https://github.com/PaddlePaddle/Fleet/tree/develop/benchmark/ps/distribute_word2vec/paddle)

@@ -18,6 +18,7 @@ fi
 
 # environment variables for fleet distribute training
 export PADDLE_TRAINER_ID=0
+export PADDLE_TRAINERS_NUM=2
 export CPU_NUM=2
 export OUTPUT_PATH="output"
 

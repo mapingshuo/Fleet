@@ -32,6 +32,7 @@ from model.bert import BertModel, BertConfig
 from optimization import optimization
 from utils.args import ArgumentGroup, print_arguments, check_cuda
 from utils.init import init_checkpoint, init_pretraining_params
+from save_load import Model
 
 from paddle.fluid.incubate.fleet.collective import fleet, DistributedStrategy
 import paddle.fluid.incubate.fleet.base.role_maker as role_maker
@@ -87,7 +88,7 @@ args = parser.parse_args()
 # yapf: enable.
 
 
-def create_model(pyreader_name, bert_config):
+def create_model2(pyreader_name, bert_config):
     pyreader = fluid.layers.py_reader(
         capacity=70,
         shapes=[[-1, args.max_seq_len, 1], [-1, args.max_seq_len, 1],
@@ -120,6 +121,36 @@ def create_model(pyreader_name, bert_config):
 
     return pyreader, next_sent_acc, mask_lm_loss, total_loss
 
+def create_model(bert_config):
+    input_fields = {
+        'names': ['src_ids', 'pos_ids', 'sent_ids', 'input_mask', 'mask_label', 'mask_pos', 'labels'],
+        'shapes': [[None, None], [None, None], [None, None],
+                [None, None, 1], [None, 1], [None, 1], [None, 1]],
+        'dtypes': ['int64', 'int64', 'int64', 'float32', 'int64', 'int64', 'int64'],
+        'lod_levels': [0, 0, 0, 0, 0, 0, 0],
+    }
+
+    inputs = [fluid.data(name=input_fields['names'][i],
+                      shape=input_fields['shapes'][i],
+                      dtype=input_fields['dtypes'][i],
+                      lod_level=input_fields['lod_levels'][i]) for i in range(len(input_fields['names']))]
+
+    (src_ids, pos_ids, sent_ids, input_mask, mask_label, mask_pos, labels) = inputs
+    data_loader = fluid.io.DataLoader.from_generator(feed_list=inputs, capacity=50, iterable=True)
+
+    bert = BertModel(
+        src_ids=src_ids,
+        position_ids=pos_ids,
+        sentence_ids=sent_ids,
+        input_mask=input_mask,
+        config=bert_config,
+        weight_sharing=args.weight_sharing,
+        use_fp16=args.use_fp16)
+
+    next_sent_acc, mask_lm_loss, total_loss = bert.get_pretraining_output(
+        mask_label, mask_pos, labels)
+
+    return data_loader, next_sent_acc, mask_lm_loss, total_loss
 
 def predict_wrapper(args,
                     exe,
@@ -232,10 +263,24 @@ def train(args):
     dist_strategy.use_hierarchical_allreduce = True
     dist_strategy.use_amp = True
 
+    generator = fluid.unique_name.UniqueNameGenerator()
     with fluid.program_guard(train_program, startup_prog):
-        with fluid.unique_name.guard():
+        with fluid.unique_name.guard(generator):
+            #train_pyreader, next_sent_acc, mask_lm_loss, total_loss = create_model(
+            #    pyreader_name='train_reader', bert_config=bert_config)
             train_pyreader, next_sent_acc, mask_lm_loss, total_loss = create_model(
-                pyreader_name='train_reader', bert_config=bert_config)
+                bert_config=bert_config)
+            save_model = Model()
+            program_path = 'bert_large'
+            save_model.save_program(
+                  train_program, 
+                  startup_prog, 
+                  program_path, 
+                   ['src_ids', 'pos_ids', 'sent_ids', 'input_mask', 'mask_label', 'mask_pos', 'labels'],
+                  total_loss,
+                  [next_sent_acc, mask_lm_loss],
+                  generator.ids)
+            exit()
             scheduled_lr = optimization(
                 loss=total_loss,
                 warmup_steps=args.warmup_steps,

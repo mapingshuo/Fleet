@@ -36,7 +36,7 @@ from utils.init import init_checkpoint, init_pretraining_params
 from paddle.fluid.incubate.fleet.collective import fleet, DistributedStrategy
 import paddle.fluid.incubate.fleet.base.role_maker as role_maker
 
-trainer_id = int(os.environ.get('PADDLE_TRAINER_ID'))
+trainer_id = int(os.environ.get('PADDLE_TRAINER_ID', 0))
 
 # yapf: disable
 parser = argparse.ArgumentParser(__doc__)
@@ -227,9 +227,10 @@ def train(args):
     dist_strategy.exec_strategy = exec_strategy
 
     role = role_maker.PaddleCloudRoleMaker(is_collective=True)
-    fleet.init(role)
+    #fleet.init(role)
     dist_strategy.nccl_comm_num = 3
     dist_strategy.use_hierarchical_allreduce = True
+    dist_strategy.use_amp = True
 
     with fluid.program_guard(train_program, startup_prog):
         with fluid.unique_name.guard():
@@ -248,7 +249,7 @@ def train(args):
                 loss_scaling=args.loss_scaling,
                 dist_strategy = dist_strategy)
 
-    train_program = fleet.main_program
+    #train_program = fleet.main_program
 
     test_prog = fluid.Program()
     with fluid.program_guard(test_prog, startup_prog):
@@ -259,7 +260,7 @@ def train(args):
     test_prog = test_prog.clone(for_test=True)
 
     if args.use_cuda:
-        gpus = os.getenv("FLAGS_selected_gpus").split(",")
+        gpus = os.getenv("FLAGS_selected_gpus", "0").split(",")
         gpu_id = int(gpus[0])
         place = fluid.CUDAPlace(gpu_id)
         dev_count = fluid.core.get_cuda_device_count()
@@ -281,7 +282,8 @@ def train(args):
 
     exe = fluid.Executor(place)
     exe.run(startup_prog)
-
+    with open("main_program", 'w') as f:
+        f.write(str(fleet._origin_program))
     if args.init_checkpoint and args.init_checkpoint != "":
         init_checkpoint(exe, args.init_checkpoint, train_program, args.use_fp16)
 
@@ -318,12 +320,12 @@ def train(args):
     time_begin = time.time()
     while steps < args.num_train_steps:
         try:
-            steps += fleet.worker_num()
-            skip_steps = args.skip_steps * fleet.worker_num()
+            steps += 1 #fleet.worker_num()
+            skip_steps = args.skip_steps #  * fleet.worker_num()
 
-            if fleet.worker_index() != 0:
-                train_exe.run(fetch_list=[], program=train_program)
-                continue
+            #if fleet.worker_index() != 0:
+            #    train_exe.run(fetch_list=[], program=train_program)
+            #    continue
 
             if steps % skip_steps != 0:
                 train_exe.run(fetch_list=[], program=train_program)

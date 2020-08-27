@@ -124,10 +124,13 @@ def optimization(loss,
         for param in train_program.global_block().all_parameters():
             param_list[param.name] = param * 1.0
             param_list[param.name].stop_gradient = True
-
+        
+        dist_strategy = None
         if dist_strategy is not None:
             # use fleet api
             optimizer = fleet.distributed_optimizer(optimizer, strategy=dist_strategy)
+        optimizer = fluid.contrib.mixed_precision.decorate(
+            optimizer, use_dynamic_loss_scaling=True)
         _, param_grads = optimizer.minimize(loss)
 
         if weight_decay > 0:

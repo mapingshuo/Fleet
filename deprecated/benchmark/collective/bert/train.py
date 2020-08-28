@@ -268,7 +268,7 @@ def train(args):
         with fluid.unique_name.guard(generator):
             #train_pyreader, next_sent_acc, mask_lm_loss, total_loss = create_model(
             #    pyreader_name='train_reader', bert_config=bert_config)
-            train_pyreader, next_sent_acc, mask_lm_loss, total_loss = create_model(
+            data_loader, next_sent_acc, mask_lm_loss, total_loss = create_model(
                 bert_config=bert_config)
             save_model = Model()
             program_path = 'bert_large'
@@ -280,7 +280,6 @@ def train(args):
                   total_loss,
                   [next_sent_acc, mask_lm_loss],
                   generator.ids)
-            exit()
             scheduled_lr = optimization(
                 loss=total_loss,
                 warmup_steps=args.warmup_steps,
@@ -299,8 +298,8 @@ def train(args):
     test_prog = fluid.Program()
     with fluid.program_guard(test_prog, startup_prog):
         with fluid.unique_name.guard():
-            test_pyreader, next_sent_acc, mask_lm_loss, total_loss = create_model(
-                pyreader_name='test_reader', bert_config=bert_config)
+            test_data_loader, next_sent_acc, mask_lm_loss, total_loss = create_model(
+                bert_config=bert_config)
 
     test_prog = test_prog.clone(for_test=True)
 
@@ -328,7 +327,7 @@ def train(args):
     exe = fluid.Executor(place)
     exe.run(startup_prog)
     with open("main_program", 'w') as f:
-        f.write(str(fleet._origin_program))
+        f.write(str(train_program))
     if args.init_checkpoint and args.init_checkpoint != "":
         init_checkpoint(exe, args.init_checkpoint, train_program, args.use_fp16)
 
@@ -345,26 +344,25 @@ def train(args):
     
     train_exe = exe
 
-    if args.validation_set_dir and args.validation_set_dir != "":
-        predict = predict_wrapper(
-            args,
-            exe,
-            bert_config,
-            test_prog=test_prog,
-            pyreader=test_pyreader,
-            fetch_list=[
-                next_sent_acc.name, mask_lm_loss.name, total_loss.name
-            ])
+    #if args.validation_set_dir and args.validation_set_dir != "":
+    #    predict = predict_wrapper(
+    #        args,
+    #        exe,
+    #        bert_config,
+    #        test_prog=test_prog,
+    #        pyreader=test_pyreader,
+    #        fetch_list=[
+    #            next_sent_acc.name, mask_lm_loss.name, total_loss.name
+    #        ])
 
-    train_pyreader.decorate_tensor_provider(data_reader.data_generator())
-    train_pyreader.start()
+    data_loader.set_batch_generator(data_reader.data_generator(), place)
     steps = 0
     cost = []
     lm_cost = []
     acc = []
     time_begin = time.time()
     while steps < args.num_train_steps:
-        try:
+        for data in data_loader():
             steps += 1 #fleet.worker_num()
             skip_steps = args.skip_steps #  * fleet.worker_num()
 
@@ -373,11 +371,12 @@ def train(args):
             #    continue
 
             if steps % skip_steps != 0:
-                train_exe.run(fetch_list=[], program=train_program)
+                train_exe.run(feed=data, fetch_list=[], program=train_program)
 
             else:
                 each_next_acc, each_mask_lm_cost, each_total_cost, np_lr = train_exe.run(
-                        fetch_list=[
+                   feed=data,     
+                   fetch_list=[
                             next_sent_acc.name, mask_lm_loss.name, total_loss.name,
                             scheduled_lr.name], program=train_program)
 
@@ -432,9 +431,6 @@ def train(args):
 		cost = []
 		lm_cost = []
 		acc = []
-        except fluid.core.EOFException:
-            train_pyreader.reset()
-            break
 
 if __name__ == '__main__':
     print_arguments(args)

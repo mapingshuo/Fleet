@@ -121,9 +121,9 @@ def optimization(loss,
                                     train_program)
 
     else:
-        for param in train_program.global_block().all_parameters():
-            param_list[param.name] = param * 1.0
-            param_list[param.name].stop_gradient = True
+        #for param in train_program.global_block().all_parameters():
+        #    param_list[param.name] = param * 1.0
+        #    param_list[param.name].stop_gradient = True
         
         dist_strategy = None
         if dist_strategy is not None:
@@ -133,14 +133,14 @@ def optimization(loss,
             optimizer, use_dynamic_loss_scaling=True)
         _, param_grads = optimizer.minimize(loss)
 
-        if weight_decay > 0:
-            for param, grad in param_grads:
-                if exclude_from_weight_decay(param.name):
-                    continue
-                with param.block.program._optimized_guard(
-                    [param, grad]), fluid.framework.name_scope("weight_decay"):
-                    updated_param = param - param_list[
-                        param.name] * weight_decay * scheduled_lr
-                    fluid.layers.assign(output=param, input=updated_param)
+        #if weight_decay > 0:
+        #    for param, grad in param_grads:
+        #        if exclude_from_weight_decay(param.name):
+        #            continue
+        #        with param.block.program._optimized_guard(
+        #            [param, grad]), fluid.framework.name_scope("weight_decay"):
+        #            updated_param = param - param_list[
+        #                param.name] * weight_decay * scheduled_lr
+        #            fluid.layers.assign(output=param, input=updated_param)
 
     return scheduled_lr
